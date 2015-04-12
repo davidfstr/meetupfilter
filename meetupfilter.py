@@ -133,10 +133,11 @@ def fetch_new_groups():
             group_title = m.group(1)
             
             # Prior to 2013-05-18, \r\n was EOL. Now it seems to be \n.
+            # 2015-04-12: Some groups have no description.
             m = re.search(r'(?s)'
                 'Check it out!: [^\r\n]*\r?\n'
                 '\r?\n'
-                '(.*?)\r?\n'
+                '(?:(.*?)\r?\n)?'
                 '\r?\n'
                 'Related Meetup Groups\r?\n',
                 main_plain_payload)
@@ -145,6 +146,8 @@ def fetch_new_groups():
                     'Unable to locate group description in body of message %s. Body was %s.' % 
                     (repr(subject), repr(main_plain_payload)))
             group_description = m.group(1)
+            if group_description is None:
+                group_description = u''
             
             groups.append({
                 'urlname': group_urlname,
