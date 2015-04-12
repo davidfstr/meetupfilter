@@ -1,4 +1,4 @@
-# meetupfilter 0.9
+# meetupfilter
 
 ## Problem
 
