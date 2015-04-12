@@ -1,11 +1,19 @@
 from __future__ import unicode_literals
 
 import meetupfilter_config as config
+import notifymail
 import sys
+import traceback
 
 MIN_EVENTS_TO_ANNOUNCE = config.MIN_EVENTS_TO_ANNOUNCE
 
 def main(args):
+    try:
+        _run_main(args)
+    except Exception as e:
+        notifymail.send('[meetupfilter] Execution error', traceback.format_exc())
+
+def _run_main(args):
     simulate = 'test' in args
     
     db = open_db()
