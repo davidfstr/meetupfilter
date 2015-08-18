@@ -10,14 +10,17 @@ import traceback
 MIN_EVENTS_TO_ANNOUNCE = config.MIN_EVENTS_TO_ANNOUNCE
 
 def main(args):
-    try:
-        _run_main(args)
-    except Exception as e:
-        notifymail.send('[meetupfilter] Execution error', traceback.format_exc())
-
-def _run_main(args):
     simulate = 'test' in args
     
+    try:
+        _run(simulate)
+    except Exception as e:
+        if simulate:
+            raise
+        else:
+            notifymail.send('[meetupfilter] Execution error', traceback.format_exc())
+
+def _run(simulate=False):
     db = open_db()
     
     # Fetch new groups from email.
