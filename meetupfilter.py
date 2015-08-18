@@ -1,3 +1,5 @@
+#!/usr/bin/env python2.7
+
 from __future__ import unicode_literals
 
 import meetupfilter_config as config
