@@ -28,10 +28,25 @@ def _run(simulate=False):
     new_group_descs = fetch_new_groups(simulate=simulate)
     save_groups_as_new(db, new_group_descs)
     
-    # Evaluate 'new' groups. If have >= MIN_EVENTS_TO_ANNOUNCE upcoming or past meetups:
+    # Evaluate 'new' groups.
+    # 
+    # If no longer exist:
+    #   1. transition to state 'deleted'
+    # 
+    # If have >= MIN_EVENTS_TO_ANNOUNCE upcoming or past meetups:
     #   1. send announce email
-    #   2. transition to state 'announced'
-    groups_to_announce = identify_groups_to_announce(db)
+    #   2. transition to state 'announced'.
+    groups_to_transition = identify_groups_to_transition(db)
+    groups_to_delete = groups_to_transition['groups_to_delete']
+    groups_to_announce = groups_to_transition['groups_to_announce']
+    
+    if not simulate:
+        mark_groups_as_deleted(db, groups_to_delete)
+        if len(groups_to_delete) == 0:
+            print 'No groups to delete.'
+        else:
+            print 'Deleted %s group(s).' % len(groups_to_delete)
+    
     announce_groups(db, groups_to_announce, simulate=simulate)
     if not simulate:
         mark_groups_as_announced(db, groups_to_announce)
@@ -265,24 +280,35 @@ def save_groups_as_new(db, group_descs):
                 'new',
             ))
 
-def identify_groups_to_announce(db):
+def identify_groups_to_transition(db):
     db.execute('select urlname from "group" where state="new"')
     new_groups = [row[0] for row in db.fetchall()]
     
     print 'Checking status of %s unannounced group(s)...' % len(new_groups)
     
     groups_to_announce = []
+    groups_to_delete = []
     for (i, new_group) in enumerate(new_groups):
         print '  %d/%d: %s' % (i+1, len(new_groups), new_group)
-        num_events = get_scheduled_event_count_for_group(
+        
+        # Stop tracking groups that no longer exist
+        exists = does_group_exist(
             new_group, MIN_EVENTS_TO_ANNOUNCE)
+        if not exists:
+            groups_to_delete.append(new_group)
+            continue
         
         # Groups only become announce-worthy once they have at least a few
         # events on their calendar.
+        num_events = get_scheduled_event_count_for_group(
+            new_group, MIN_EVENTS_TO_ANNOUNCE)
         if num_events >= MIN_EVENTS_TO_ANNOUNCE:
             groups_to_announce.append(new_group)
     
-    return groups_to_announce
+    return dict(
+        groups_to_announce=groups_to_announce,
+        groups_to_delete=groups_to_delete
+    )
 
 def load_groups(db, groups):
     if len(groups) == 0:
@@ -312,10 +338,43 @@ def mark_groups_as_announced(db, groups):
         ')',
         groups)
 
+def mark_groups_as_deleted(db, groups):
+    if len(groups) == 0:
+        return
+    
+    # HACK: Track the deletion date in the 'announce_date' column
+    db.execute(
+        'update "group" set ' +
+            'state="deleted", ' +
+            'announce_date=datetime("now") ' +
+        'where urlname in (' +
+            ','.join('?' * len(groups)) +
+        ')',
+        groups)
+
 # ========================================================================================
 # Meetup
 
 MEETUP_API_KEY = config.MEETUP_API_KEY
+
+def does_group_exist(group_urlname, max_count=20):
+    """
+    Returns whether the specified group exists.
+    """
+    groups = json.load(urllib2.urlopen(
+        'https://api.meetup.com/2/groups?'
+            'key='+MEETUP_API_KEY+'&'
+            'sign=true&'
+            'group_urlname='+group_urlname+'&'
+            'page='+str(max_count)))
+    num_groups = len(groups['results'])
+    if num_groups == 0:
+        return False
+    elif num_groups == 1:
+        return True
+    else:
+        raise AssertionError(
+            'Multiple groups found with urlname %s.' % repr(group_urlname))
 
 def get_scheduled_event_count_for_group(group_urlname, max_count=20):
     """
