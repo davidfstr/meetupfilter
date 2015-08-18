@@ -25,7 +25,7 @@ def _run(simulate=False):
     
     # Fetch new groups from email.
     # Add to database with status 'new'
-    new_group_descs = fetch_new_groups()
+    new_group_descs = fetch_new_groups(simulate=simulate)
     save_groups_as_new(db, new_group_descs)
     
     # Evaluate 'new' groups. If have >= MIN_EVENTS_TO_ANNOUNCE upcoming or past meetups:
@@ -53,7 +53,7 @@ USER = config.USER
 PASSWORD = config.PASSWORD
 MAILBOX = config.MAILBOX
 
-def fetch_new_groups():
+def fetch_new_groups(simulate=False):
     """
     Fetches unread "New Meetup Group" emails and returns a list of group
     descriptors for every group announced.
@@ -109,6 +109,10 @@ def fetch_new_groups():
                 else:
                     others.append(part)
             
+            if not subject.startswith('New Meetup Group:'):
+                raise BadMeetupEmailFormat(
+                    'Unexpected subject format: %s' % repr(subject))
+            
             if len(plains) < 1:
                 raise BadMeetupEmailFormat(
                     'Expected at least one text/plain part in message %s.' % repr(subject))
@@ -160,11 +164,12 @@ def fetch_new_groups():
                 'description': group_description
             })
         
-        print 'Marking %s new meetup emails as read...' % len(items)
-        
-        # Processed all messages successfully. Mark them as read.
-        for item in items:
-            _mark_as_read(imap, item)
+        if not simulate:
+            print 'Marking %s new meetup emails as read...' % len(items)
+            
+            # Processed all messages successfully. Mark them as read.
+            for item in items:
+                _mark_as_read(imap, item)
     finally:
         imap.logout()
     
@@ -267,7 +272,8 @@ def identify_groups_to_announce(db):
     print 'Checking status of %s unannounced group(s)...' % len(new_groups)
     
     groups_to_announce = []
-    for new_group in new_groups:
+    for (i, new_group) in enumerate(new_groups):
+        print '  %d/%d: %s' % (i+1, len(new_groups), new_group)
         num_events = get_scheduled_event_count_for_group(
             new_group, MIN_EVENTS_TO_ANNOUNCE)
         
