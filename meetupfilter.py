@@ -231,16 +231,27 @@ def _parse_group_from_v2(subject, main_plain_payload):
         raise BadMeetupEmailFormat(
             'Unexpected title paragraph format in message %s. Body was %s.' % 
             (repr(subject), repr(main_plain_payload)))
+    title = paragraphs[0][0]
+    
+    description = '\r\n'.join(paragraphs[1])
     
     if len(paragraphs[3]) != 2:
         raise BadMeetupEmailFormat(
             'Unexpected URL paragraph format in message %s. Body was %s.' % 
             (repr(subject), repr(main_plain_payload)))
+    url = paragraphs[3][1]
+    
+    m = re.search(r'^http://www.meetup.com/([^/]+)/', url)
+    if m is None:
+        raise BadMeetupEmailFormat(
+            'Unable to locate group URL in body of message %s. Body was %s.' % 
+            (repr(subject), repr(main_plain_payload)))
+    urlname = m.group(1)
     
     return {
-        'urlname': paragraphs[3][1],
-        'title': paragraphs[0][0],
-        'description': '\r\n'.join(paragraphs[1])
+        'urlname': urlname,
+        'title': title,
+        'description': description
     }
 
 def _pack_search_keys(search_keys):
