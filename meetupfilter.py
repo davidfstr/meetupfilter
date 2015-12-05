@@ -141,43 +141,7 @@ def fetch_new_groups(simulate=False):
                     (repr(plains[0]['Content-Type']), repr(subject)))
             main_plain_payload = main_plain_payload.decode('utf-8')
             
-            m = re.search(r'Check it out!: http://www.meetup.com/([^/]+)/', main_plain_payload)
-            if m is None:
-                raise BadMeetupEmailFormat(
-                    'Unable to locate group URL in body of message %s. Body was %s.' % 
-                    (repr(subject), repr(main_plain_payload)))
-            group_urlname = m.group(1)
-            
-            # Prior to 2013-05-18, \r\n was EOL. Now it seems to be \n.
-            m = re.search(r'New Meetup Group!\r?\n([^\r\n]+): ([^\r\n]+)\r?\n', main_plain_payload)
-            if m is None:
-                raise BadMeetupEmailFormat(
-                    'Unable to locate group title in body of message %s. Body was %s.' % 
-                    (repr(subject), repr(main_plain_payload)))
-            group_title = m.group(1)
-            
-            # Prior to 2013-05-18, \r\n was EOL. Now it seems to be \n.
-            # 2015-04-12: Some groups have no description.
-            m = re.search(r'(?s)'
-                'Check it out!: [^\r\n]*\r?\n'
-                '\r?\n'
-                '(?:(.*?)\r?\n)?'
-                '\r?\n'
-                'Related Meetup Groups\r?\n',
-                main_plain_payload)
-            if m is None:
-                raise BadMeetupEmailFormat(
-                    'Unable to locate group description in body of message %s. Body was %s.' % 
-                    (repr(subject), repr(main_plain_payload)))
-            group_description = m.group(1)
-            if group_description is None:
-                group_description = u''
-            
-            groups.append({
-                'urlname': group_urlname,
-                'title': group_title,
-                'description': group_description
-            })
+            groups.append(_parse_group_from(subject, main_plain_payload))
         
         if not simulate:
             print 'Marking %s new meetup emails as read...' % len(items)
@@ -189,6 +153,95 @@ def fetch_new_groups(simulate=False):
         imap.logout()
     
     return groups
+
+def _parse_group_from(subject, main_plain_payload):
+    try:
+        return _parse_group_from_v1(subject, main_plain_payload)
+    except BadMeetupEmailFormat:
+        pass  # ignore
+    
+    try:
+        return _parse_group_from_v2(subject, main_plain_payload)
+    except BadMeetupEmailFormat:
+        raise  # complain
+    
+def _parse_group_from_v1(subject, main_plain_payload):
+    m = re.search(r'Check it out!: http://www.meetup.com/([^/]+)/', main_plain_payload)
+    if m is None:
+        raise BadMeetupEmailFormat(
+            'Unable to locate group URL in body of message %s. Body was %s.' % 
+            (repr(subject), repr(main_plain_payload)))
+    group_urlname = m.group(1)
+    
+    # Prior to 2013-05-18, \r\n was EOL. Now it seems to be \n.
+    m = re.search(r'New Meetup Group!\r?\n([^\r\n]+): ([^\r\n]+)\r?\n', main_plain_payload)
+    if m is None:
+        raise BadMeetupEmailFormat(
+            'Unable to locate group title in body of message %s. Body was %s.' % 
+            (repr(subject), repr(main_plain_payload)))
+    group_title = m.group(1)
+    
+    # Prior to 2013-05-18, \r\n was EOL. Now it seems to be \n.
+    # 2015-04-12: Some groups have no description.
+    m = re.search(r'(?s)'
+        'Check it out!: [^\r\n]*\r?\n'
+        '\r?\n'
+        '(?:(.*?)\r?\n)?'
+        '\r?\n'
+        'Related Meetup Groups\r?\n',
+        main_plain_payload)
+    if m is None:
+        raise BadMeetupEmailFormat(
+            'Unable to locate group description in body of message %s. Body was %s.' % 
+            (repr(subject), repr(main_plain_payload)))
+    group_description = m.group(1)
+    if group_description is None:
+        group_description = u''
+    
+    return {
+        'urlname': group_urlname,
+        'title': group_title,
+        'description': group_description
+    }
+
+def _parse_group_from_v2(subject, main_plain_payload):
+    lines = main_plain_payload.split('\r\n')
+    
+    paragraphs = []
+    cur_paragraph = []
+    for line in lines:
+        if len(line) != 0:
+            cur_paragraph.append(line)
+        else:
+            if len(cur_paragraph) > 0:
+                paragraphs.append(cur_paragraph)
+                cur_paragraph = []
+    
+    if len(paragraphs) < 4:
+        raise BadMeetupEmailFormat(
+            'Expected more paragraphs in message %s. Body was %s.' % 
+            (repr(subject), repr(main_plain_payload)))
+    
+    if (paragraphs[2][0] != 'Join us' or paragraphs[3][0] != 'Find out more'):
+        raise BadMeetupEmailFormat(
+            'Unexpected paragraph arrangement in message %s. Body was %s.' % 
+            (repr(subject), repr(main_plain_payload)))
+    
+    if len(paragraphs[0]) != 1:
+        raise BadMeetupEmailFormat(
+            'Unexpected title paragraph format in message %s. Body was %s.' % 
+            (repr(subject), repr(main_plain_payload)))
+    
+    if len(paragraphs[3]) != 2:
+        raise BadMeetupEmailFormat(
+            'Unexpected URL paragraph format in message %s. Body was %s.' % 
+            (repr(subject), repr(main_plain_payload)))
+    
+    return {
+        'urlname': paragraphs[3][1],
+        'title': paragraphs[0][0],
+        'description': '\r\n'.join(paragraphs[1])
+    }
 
 def _pack_search_keys(search_keys):
     return '(' + ' '.join(search_keys) + ')'
